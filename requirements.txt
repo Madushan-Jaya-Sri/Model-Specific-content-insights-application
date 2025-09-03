@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+python-multipart
+aiofiles
+pandas
+numpy
+python-dotenv
+pydantic
+apify-client
+openai
+requests
+Pillow
+jinja2
