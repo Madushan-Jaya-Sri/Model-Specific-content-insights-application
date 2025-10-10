@@ -461,8 +461,29 @@ class AnalysisService:
         """Filter posts by time range"""
         if not posts:
             return []
-            
+        
+        from datetime import timezone
+        
         filtered_posts = []
+        
+        # Ensure filter dates are timezone-aware (UTC)
+        start_date = time_filter.start_date
+        end_date = time_filter.end_date
+        
+        # Convert filter dates to UTC if they're naive
+        if start_date.tzinfo is None:
+            start_date = start_date.replace(tzinfo=timezone.utc)
+        else:
+            # Convert to UTC if it has a different timezone
+            start_date = start_date.astimezone(timezone.utc)
+        
+        if end_date.tzinfo is None:
+            end_date = end_date.replace(tzinfo=timezone.utc)
+        else:
+            # Convert to UTC if it has a different timezone
+            end_date = end_date.astimezone(timezone.utc)
+        
+        print(f"DEBUG: Filter range (UTC): {start_date} to {end_date}")
         
         for post in posts:
             post_time = post.get('timestamp')
@@ -470,85 +491,167 @@ class AnalysisService:
             if not post_time:
                 print(f"DEBUG: Post {post.get('id', 'unknown')} has no timestamp, skipping")
                 continue
-                
+            
             # Handle different timestamp formats
             if isinstance(post_time, str):
                 try:
-                    # Try parsing ISO format first
+                    # Try parsing ISO format with timezone
                     if 'T' in post_time:
-                        post_time = datetime.fromisoformat(post_time.replace('Z', '+00:00'))
+                        # Handle both 'Z' and '+00:00' formats
+                        post_time_str = post_time.replace('Z', '+00:00')
+                        post_time = datetime.fromisoformat(post_time_str)
                     else:
-                        # Try parsing date-only format
+                        # Parse date-only format and make it UTC aware (start of day)
                         post_time = datetime.strptime(post_time, '%Y-%m-%d')
-                except Exception as e:
+                        post_time = post_time.replace(tzinfo=timezone.utc)
+                except ValueError as e:
                     print(f"DEBUG: Failed to parse timestamp '{post_time}' for post {post.get('id', 'unknown')}: {e}")
-                    continue
-            elif not isinstance(post_time, datetime):
+                    # Try alternative parsing
+                    try:
+                        # Try parsing with different formats
+                        for fmt in ['%Y-%m-%d %H:%M:%S', '%Y/%m/%d', '%d-%m-%Y']:
+                            try:
+                                post_time = datetime.strptime(post_time, fmt)
+                                post_time = post_time.replace(tzinfo=timezone.utc)
+                                break
+                            except ValueError:
+                                continue
+                        else:
+                            print(f"DEBUG: Could not parse timestamp with any known format")
+                            continue
+                    except Exception as parse_error:
+                        print(f"DEBUG: All parsing attempts failed: {parse_error}")
+                        continue
+            elif isinstance(post_time, datetime):
+                # It's already a datetime object
+                pass
+            else:
                 print(f"DEBUG: Invalid timestamp type for post {post.get('id', 'unknown')}: {type(post_time)}")
                 continue
             
-            # Check if post is within the time filter range
-            if time_filter.start_date <= post_time <= time_filter.end_date:
+            # Ensure post_time is timezone-aware (UTC)
+            if post_time.tzinfo is None:
+                post_time = post_time.replace(tzinfo=timezone.utc)
+            else:
+                # Convert to UTC if it has a different timezone
+                post_time = post_time.astimezone(timezone.utc)
+            
+            # Now both datetimes are timezone-aware and in UTC, safe to compare
+            if start_date <= post_time <= end_date:
                 filtered_posts.append(post)
                 print(f"DEBUG: Post {post.get('id', 'unknown')} included (timestamp: {post_time})")
             else:
-                print(f"DEBUG: Post {post.get('id', 'unknown')} excluded (timestamp: {post_time}, range: {time_filter.start_date} to {time_filter.end_date})")
+                print(f"DEBUG: Post {post.get('id', 'unknown')} excluded (timestamp: {post_time}, range: {start_date} to {end_date})")
         
         print(f"DEBUG: Filtered {len(posts)} posts down to {len(filtered_posts)}")
         return filtered_posts
-
     def export_to_csv(self, brands_data: Dict[str, Any], analysis_id: str, 
-                     time_filter: Optional[TimeFilter] = None) -> str:
+                    time_filter: Optional[TimeFilter] = None) -> str:
         """Export analysis results to CSV"""
-        all_posts = []
-        
-        for brand_name, brand_data in brands_data.items():
-            # Collect all posts from both platforms
-            instagram_posts = brand_data.get("instagram", {}).get("posts", [])
-            facebook_posts = brand_data.get("facebook", {}).get("posts", [])
+        try:
+            from datetime import timezone
             
-            brand_posts = instagram_posts + facebook_posts
+            all_posts = []
             
-            # Apply time filter if provided
-            if time_filter:
-                brand_posts = self.filter_posts_by_time(brand_posts, time_filter)
+            logger.info(f"Exporting CSV for {len(brands_data)} brands")
             
-            # Add brand information to each post
-            for post in brand_posts:
-                post_data = post.copy()
-                post_data['brand'] = brand_name
+            for brand_name, brand_data in brands_data.items():
+                # Collect all posts from both platforms
+                instagram_posts = brand_data.get("instagram", {}).get("posts", [])
+                facebook_posts = brand_data.get("facebook", {}).get("posts", [])
                 
-                # Ensure timestamp is string for CSV
-                if isinstance(post_data.get('timestamp'), datetime):
-                    post_data['timestamp'] = post_data['timestamp'].isoformat()
+                logger.info(f"Brand {brand_name}: {len(instagram_posts)} Instagram, {len(facebook_posts)} Facebook posts")
                 
-                # Convert lists to comma-separated strings
-                if isinstance(post_data.get('hashtags'), list):
-                    post_data['hashtags'] = ', '.join(post_data['hashtags'])
+                brand_posts = instagram_posts + facebook_posts
                 
-                if isinstance(post_data.get('thumbnails'), list):
-                    post_data['thumbnails'] = ', '.join(post_data['thumbnails'])
+                # Apply time filter if provided
+                if time_filter:
+                    original_count = len(brand_posts)
+                    try:
+                        brand_posts = self.filter_posts_by_time(brand_posts, time_filter)
+                        logger.info(f"Filtered {brand_name}: {original_count} -> {len(brand_posts)} posts")
+                    except Exception as e:
+                        logger.error(f"Error filtering posts for {brand_name}: {e}")
+                        # Continue without filtering rather than failing
+                        logger.warning(f"Proceeding with unfiltered posts for {brand_name}")
                 
-                all_posts.append(post_data)
-        
-        # Convert to DataFrame
-        if all_posts:
-            df = pd.DataFrame(all_posts)
-            # Select relevant columns for CSV
-            columns = ['brand', 'platform', 'model', 'timestamp', 'engagement', 
-                      'likes', 'comments', 'shares', 'reactions', 'url', 'caption', 
-                      'text', 'hashtags', 'thumbnail', 'classification_reason', 
-                      'classification_confidence']
-            df = df.reindex(columns=[col for col in columns if col in df.columns])
-        else:
-            # Create empty DataFrame with expected columns
-            columns = ['brand', 'platform', 'model', 'timestamp', 'engagement', 
-                      'likes', 'comments', 'shares', 'reactions', 'url', 'caption', 'text']
-            df = pd.DataFrame(columns=columns)
-        
-        # Save to CSV
-        csv_path = f"results/analysis_{analysis_id}_results.csv"
-        os.makedirs(os.path.dirname(csv_path), exist_ok=True)
-        df.to_csv(csv_path, index=False, encoding='utf-8')
-        
-        return csv_path
+                # Add brand information to each post
+                for post in brand_posts:
+                    post_data = post.copy()
+                    post_data['brand'] = brand_name
+                    
+                    # Ensure timestamp is string for CSV
+                    timestamp = post_data.get('timestamp')
+                    if isinstance(timestamp, datetime):
+                        # Convert to UTC and format as ISO string
+                        if timestamp.tzinfo is None:
+                            timestamp = timestamp.replace(tzinfo=timezone.utc)
+                        else:
+                            timestamp = timestamp.astimezone(timezone.utc)
+                        post_data['timestamp'] = timestamp.isoformat()
+                    elif isinstance(timestamp, str):
+                        # Already a string, keep it as is
+                        post_data['timestamp'] = timestamp
+                    elif timestamp is None:
+                        post_data['timestamp'] = ''
+                    else:
+                        # Unknown type, convert to string
+                        post_data['timestamp'] = str(timestamp)
+                    
+                    # Convert lists to comma-separated strings
+                    if isinstance(post_data.get('hashtags'), list):
+                        post_data['hashtags'] = ', '.join(post_data['hashtags'])
+                    
+                    if isinstance(post_data.get('thumbnails'), list):
+                        post_data['thumbnails'] = ', '.join(post_data['thumbnails'])
+                    
+                    all_posts.append(post_data)
+            
+            logger.info(f"Total posts to export: {len(all_posts)}")
+            
+            # Ensure results directory exists
+            os.makedirs("results", exist_ok=True)
+            
+            # Convert to DataFrame
+            if all_posts:
+                df = pd.DataFrame(all_posts)
+                
+                # Select and order columns
+                desired_columns = [
+                    'brand', 'platform', 'model', 'timestamp', 'engagement', 
+                    'likes', 'comments', 'shares', 'reactions', 'url', 
+                    'caption', 'text', 'hashtags', 'thumbnail', 
+                    'classification_reason', 'classification_confidence'
+                ]
+                
+                # Only include columns that exist in the dataframe
+                available_columns = [col for col in desired_columns if col in df.columns]
+                df = df[available_columns]
+                
+                logger.info(f"DataFrame created with {len(df)} rows and {len(df.columns)} columns")
+            else:
+                # Create empty DataFrame with expected columns
+                logger.warning("No posts to export, creating empty DataFrame")
+                columns = [
+                    'brand', 'platform', 'model', 'timestamp', 'engagement', 
+                    'likes', 'comments', 'shares', 'reactions', 'url', 
+                    'caption', 'text', 'hashtags'
+                ]
+                df = pd.DataFrame(columns=columns)
+            
+            # Save to CSV
+            csv_path = f"results/analysis_{analysis_id}_results.csv"
+            df.to_csv(csv_path, index=False, encoding='utf-8')
+            
+            # Verify file was created
+            if not os.path.exists(csv_path):
+                raise Exception(f"CSV file was not created at {csv_path}")
+            
+            file_size = os.path.getsize(csv_path)
+            logger.info(f"CSV saved successfully: {csv_path} ({file_size} bytes)")
+            
+            return csv_path
+            
+        except Exception as e:
+            logger.error(f"Error in export_to_csv: {e}", exc_info=True)
+            raise

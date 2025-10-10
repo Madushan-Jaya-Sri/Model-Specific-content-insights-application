@@ -458,7 +458,86 @@ async def delete_analysis(analysis_id: str):
     except Exception as e:
         logger.error(f"Error deleting analysis {analysis_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")
+    
 
+@app.get("/api/download/{analysis_id}")
+async def download_results(analysis_id: str, time_filter: Optional[str] = None):
+    """Download analysis results as CSV"""
+    try:
+        logger.info(f"Download request for analysis: {analysis_id}")
+        
+        # Get analysis data
+        analysis_data = active_analysis.get(analysis_id) or db_service.get_analysis_result(analysis_id)
+        if not analysis_data:
+            logger.error(f"Analysis {analysis_id} not found")
+            raise HTTPException(status_code=404, detail="Analysis not found")
+        
+        if not analysis_data.get('brands_data'):
+            logger.error(f"No brands data in analysis {analysis_id}")
+            raise HTTPException(status_code=400, detail="No analysis data available")
+        
+        analyzer = AnalysisService()
+        
+        # Parse time filter if provided
+        filter_obj = None
+        if time_filter:
+            try:
+                filter_data = json.loads(time_filter)
+                filter_obj = TimeFilter(
+                    start_date=datetime.fromisoformat(filter_data['start_date'].replace('Z', '+00:00')),
+                    end_date=datetime.fromisoformat(filter_data['end_date'].replace('Z', '+00:00'))
+                )
+                logger.info(f"Time filter applied: {filter_obj.start_date} to {filter_obj.end_date}")
+            except Exception as e:
+                logger.warning(f"Error parsing time filter, proceeding without it: {e}")
+                filter_obj = None
+        
+        # Generate CSV
+        try:
+            csv_path = analyzer.export_to_csv(
+                analysis_data["brands_data"], 
+                analysis_id, 
+                filter_obj
+            )
+            logger.info(f"CSV generated at: {csv_path}")
+        except Exception as e:
+            logger.error(f"Error generating CSV: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to generate CSV: {str(e)}")
+        
+        # Verify file exists
+        if not os.path.exists(csv_path):
+            logger.error(f"CSV file not found at: {csv_path}")
+            raise HTTPException(status_code=500, detail="CSV file not found after generation")
+        
+        # Verify file is not empty
+        file_size = os.path.getsize(csv_path)
+        if file_size == 0:
+            logger.error(f"Generated CSV file is empty")
+            raise HTTPException(status_code=500, detail="Generated CSV file is empty")
+        
+        logger.info(f"CSV file ready: {csv_path} ({file_size} bytes)")
+        
+        filename = f"social_media_analysis_{analysis_id[:8]}.csv"
+        
+        return FileResponse(
+            path=csv_path,
+            media_type='text/csv',
+            filename=filename,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "no-cache",
+                "Access-Control-Expose-Headers": "Content-Disposition"
+            }
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in download endpoint: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")
+    
+
+    
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

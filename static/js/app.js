@@ -543,6 +543,33 @@ class SocialMediaAnalytics {
         }
     }
     
+    async downloadResults() {
+        if (!this.currentAnalysisId) {
+            UI.showToast('No analysis data available for download.', 'error');
+            return;
+        }
+
+        const startDate = $('#startDateFilter').val();
+        const endDate = $('#endDateFilter').val();
+        
+        // Show loading state on button
+        const downloadBtn = $('#downloadBtn');
+        const originalHtml = downloadBtn.html();
+        downloadBtn.html('<i class="fas fa-spinner fa-spin mr-2"></i>Downloading...').prop('disabled', true);
+        
+        try {
+            const result = await API.downloadResults(this.currentAnalysisId, startDate, endDate);
+            UI.showToast(`Downloaded: ${result.filename}`, 'success');
+        } catch (error) {
+            console.error('Download failed:', error);
+            UI.showToast('Download failed: ' + error.message, 'error');
+        } finally {
+            // Restore button state
+            setTimeout(() => {
+                downloadBtn.html(originalHtml).prop('disabled', false);
+            }, 1000);
+        }
+    }
     openPostUrl(e) {
         const url = $(e.target).data('post-url') || $(e.target).closest('.post-thumbnail').data('post-url');
         if (url) {
