@@ -4,6 +4,8 @@ class SocialMediaAnalytics {
         this.currentAnalysisId = null;
         this.analysisData = null;
         this.referenceImages = {};
+        this.pollRetryCount = 0; // Add this
+        this.maxRetries = 50; // Add this (50 retries = ~10 minutes with exponential backoff)
         
         this.init();
     }
@@ -206,6 +208,7 @@ class SocialMediaAnalytics {
         
         // Show loading
         this.showLoadingSection();
+        this.pollRetryCount = 0;
         
         try {
             // Start analysis with reference images
@@ -225,6 +228,7 @@ class SocialMediaAnalytics {
             UI.showToast('Error starting analysis: ' + error.message, 'error');
             this.hideLoadingSection();
         }
+        setTimeout(() => this.pollAnalysisStatus(), 1000);
     }
     
     collectBrandConfigurations() {
@@ -313,12 +317,21 @@ class SocialMediaAnalytics {
         $('#referenceImagesSection').removeClass('hidden');
         $('#loadingSection').addClass('hidden');
     }
-    
+        
     async pollAnalysisStatus() {
         if (!this.currentAnalysisId) return;
+        
+        if (this.pollRetryCount >= this.maxRetries) {
+            UI.showToast('Analysis is taking too long. Please check back later.', 'warning');
+            this.hideLoadingSection();
+            return;
+        }
 
         try {
             const data = await API.getAnalysisStatus(this.currentAnalysisId);
+            
+            // Reset retry count on successful request
+            this.pollRetryCount = 0;
             
             UI.updateLoadingStatus({
                 message: data.message,
@@ -332,16 +345,21 @@ class SocialMediaAnalytics {
                 UI.showToast('Analysis failed: ' + data.message, 'error');
                 this.hideLoadingSection();
             } else {
-                const pollInterval = (data.status === 'processing' || data.status === 'starting') ? 2000 : 3000;
+                const pollInterval = 5000;
                 setTimeout(() => this.pollAnalysisStatus(), pollInterval);
             }
             
         } catch (error) {
             console.error('Polling error:', error);
-            setTimeout(() => this.pollAnalysisStatus(), 5000);
+            this.pollRetryCount++;
+            
+            // Exponential backoff: 5s, 10s, 15s, 20s, then 20s
+            const backoffDelay = Math.min(5000 * this.pollRetryCount, 20000);
+            
+            console.log(`Retry ${this.pollRetryCount}/${this.maxRetries} in ${backoffDelay/1000}s...`);
+            setTimeout(() => this.pollAnalysisStatus(), backoffDelay);
         }
     }
-    
     showResults(data) {
         console.log('Showing results');
         

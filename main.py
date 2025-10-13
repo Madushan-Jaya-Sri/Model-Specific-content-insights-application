@@ -157,8 +157,12 @@ async def process_analysis(analysis_id: str, brands_config: Dict[str, BrandConfi
             active_analysis[analysis_id].update(progress_data)
             logger.info(f"Progress updated: {progress_percentage}% - {message}")
             
-            # Save to database asynchronously
-            asyncio.create_task(save_progress_async(analysis_id, active_analysis[analysis_id]))
+            # IMPORTANT: Force immediate database save (blocking for reliability)
+            try:
+                db_service.save_analysis_result(analysis_id, active_analysis[analysis_id])
+            except Exception as e:
+                logger.error(f"Failed to save progress: {e}")
+            
             return progress_percentage
 
         await asyncio.sleep(0.5)
@@ -257,7 +261,10 @@ async def process_analysis(analysis_id: str, brands_config: Dict[str, BrandConfi
 async def save_progress_async(analysis_id: str, data: dict):
     """Save progress to database asynchronously"""
     try:
-        db_service.save_analysis_result(analysis_id, data)
+        # Use run_in_executor to avoid blocking
+        import asyncio
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, db_service.save_analysis_result, analysis_id, data)
     except Exception as e:
         logger.error(f"Error saving progress to database: {e}")
 
