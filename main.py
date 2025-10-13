@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 
 from services.scraper_service import SocialMediaScraper
 from services.analysis_service import AnalysisService
-from services.database_service import DatabaseService
+from services.database_service_mongo import DatabaseService
 from data_models import BrandConfig, TimeFilter
 from utils.image_handler import ImageHandler
 
@@ -39,6 +39,11 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 os.makedirs("uploads", exist_ok=True)
 os.makedirs("results", exist_ok=True)
 os.makedirs("static", exist_ok=True)
+
+
+# DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./analytics.db")
+# AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+
 
 # Initialize services
 db_service = DatabaseService()
