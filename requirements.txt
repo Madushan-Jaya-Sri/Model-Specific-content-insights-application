@@ -21,8 +21,8 @@ apify-client
 openai
 
 # HTTP requests - FIXED FOR SSL COMPATIBILITY
-requests
-urllib3
+requests<2.32
+urllib3<2.0
 certifi
 
 # Image processing
