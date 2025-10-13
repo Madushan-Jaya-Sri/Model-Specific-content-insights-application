@@ -61,8 +61,8 @@ class DatabaseService:
             # Serialize datetime objects
             data_copy = self._serialize_datetime_objects(data)
             
-            # Prepare document
-            document = {
+            # Prepare document for update
+            update_document = {
                 "analysis_id": analysis_id,
                 "status": data.get('status', 'unknown'),
                 "progress": data.get('progress', 0),
@@ -70,14 +70,16 @@ class DatabaseService:
                 "brands_data": data_copy.get('brands_data', {}),
                 "universal_filter": data_copy.get('universal_filter', {}),
                 "reference_images": data_copy.get('reference_images', {}),
-                "updated_at": datetime.utcnow(),
-                "created_at": datetime.utcnow()
+                "updated_at": datetime.utcnow()
             }
             
             # Upsert (update if exists, insert if not)
             self.analysis_collection.update_one(
                 {"analysis_id": analysis_id},
-                {"$set": document, "$setOnInsert": {"created_at": datetime.utcnow()}},
+                {
+                    "$set": update_document,
+                    "$setOnInsert": {"created_at": datetime.utcnow()}
+                },
                 upsert=True
             )
             
