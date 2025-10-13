@@ -24,6 +24,7 @@ class SocialMediaAnalytics {
         $('#applyFilterBtn').click(() => this.applyTimeFilter());
         $('#downloadBtn').click(() => this.downloadResults());
         $('#homeBtn').click(() => this.goToHome());
+        $('#showPartialResultsBtn').click(() => this.showPartialResults()); 
         
         // History panel
         $('#historyToggleBtn').click(() => this.toggleHistoryPanel());
@@ -202,22 +203,22 @@ class SocialMediaAnalytics {
         const brands = this.collectBrandConfigurations();
         if (!brands) return;
         
-        // Prepare reference images for upload
-        const uploadPromises = await this.uploadReferenceImages();
-        if (uploadPromises === null) return; // Upload failed
-        
         // Show loading
         this.showLoadingSection();
-        this.pollRetryCount = 0;
         
         try {
-            // Start analysis with reference images
+            // Prepare reference images for upload (don't fail if uploads fail)
+            const uploadPromises = await this.uploadReferenceImages();
+            // uploadPromises will now always return something (even if empty)
+            
+            // Start analysis with whatever reference images we managed to upload
             const response = await API.startAnalysis({
                 brands_config: brands,
                 reference_images: uploadPromises
             });
             
             this.currentAnalysisId = response.analysis_id;
+            this.pollRetryCount = 0; // Reset retry counter
             console.log('Analysis started:', this.currentAnalysisId);
             
             // Start polling
@@ -228,9 +229,7 @@ class SocialMediaAnalytics {
             UI.showToast('Error starting analysis: ' + error.message, 'error');
             this.hideLoadingSection();
         }
-        setTimeout(() => this.pollAnalysisStatus(), 1000);
     }
-    
     collectBrandConfigurations() {
         const brands = {};
         let hasError = false;
@@ -260,7 +259,8 @@ class SocialMediaAnalytics {
         
         return brands;
     }
-    
+        
+
     async uploadReferenceImages() {
         const uploadedPaths = {};
         const tempId = 'temp-' + Date.now();
@@ -289,9 +289,10 @@ class SocialMediaAnalytics {
                             const response = await API.uploadReferenceImages(formData);
                             uploadedPaths[brandName][modelName] = response.paths;
                         } catch (error) {
-                            console.error(`Error uploading images for ${brandName} - ${modelName}:`, error);
-                            UI.showToast(`Failed to upload images for ${brandName} - ${modelName}`, 'error');
-                            return null;
+                            console.warn(`Failed to upload images for ${brandName} - ${modelName}:`, error);
+                            // Don't stop - continue with other uploads
+                            // Store empty array so analysis knows to skip this model's image classification
+                            uploadedPaths[brandName][modelName] = [];
                         }
                     }
                 }
@@ -301,15 +302,23 @@ class SocialMediaAnalytics {
             
         } catch (error) {
             console.error('Error in reference image upload:', error);
-            UI.showToast('Error uploading reference images: ' + error.message, 'error');
-            return null;
+            // Return partial uploads instead of null
+            UI.showToast('Some reference images failed to upload, continuing with analysis', 'warning');
+            return uploadedPaths;
         }
-    }
+}
     
     showLoadingSection() {
         $('#configSection').addClass('hidden');
         $('#referenceImagesSection').addClass('hidden');
         $('#loadingSection').removeClass('hidden');
+        
+        // Show "Show Results" button after 30 seconds
+        setTimeout(() => {
+            if (!$('#loadingSection').hasClass('hidden')) {
+                $('#showPartialResultsBtn').removeClass('hidden');
+            }
+        }, 30000);
     }
     
     hideLoadingSection() {
@@ -318,12 +327,13 @@ class SocialMediaAnalytics {
         $('#loadingSection').addClass('hidden');
     }
         
+
     async pollAnalysisStatus() {
         if (!this.currentAnalysisId) return;
         
         if (this.pollRetryCount >= this.maxRetries) {
-            UI.showToast('Analysis is taking too long. Please check back later.', 'warning');
-            this.hideLoadingSection();
+            UI.showToast('Analysis is taking too long. Showing available data...', 'warning');
+            this.showPartialResults();
             return;
         }
 
@@ -342,8 +352,15 @@ class SocialMediaAnalytics {
                 this.analysisData = data;
                 this.showResults(data);
             } else if (data.status === 'error') {
-                UI.showToast('Analysis failed: ' + data.message, 'error');
-                this.hideLoadingSection();
+                // Show whatever data we have even on error
+                if (data.brands_data && Object.keys(data.brands_data).length > 0) {
+                    UI.showToast('Analysis had errors, showing available data', 'warning');
+                    this.analysisData = data;
+                    this.showResults(data);
+                } else {
+                    UI.showToast('Analysis failed: ' + data.message, 'error');
+                    this.hideLoadingSection();
+                }
             } else {
                 const pollInterval = 5000;
                 setTimeout(() => this.pollAnalysisStatus(), pollInterval);
@@ -353,13 +370,41 @@ class SocialMediaAnalytics {
             console.error('Polling error:', error);
             this.pollRetryCount++;
             
-            // Exponential backoff: 5s, 10s, 15s, 20s, then 20s
-            const backoffDelay = Math.min(5000 * this.pollRetryCount, 20000);
+            // After 3 retries, try to show whatever data is available
+            if (this.pollRetryCount >= 3) {
+                console.log('Multiple polling failures, attempting to show partial results...');
+                this.showPartialResults();
+                return;
+            }
             
+            const backoffDelay = Math.min(5000 * this.pollRetryCount, 20000);
             console.log(`Retry ${this.pollRetryCount}/${this.maxRetries} in ${backoffDelay/1000}s...`);
             setTimeout(() => this.pollAnalysisStatus(), backoffDelay);
         }
     }
+
+
+    async showPartialResults() {
+        try {
+            // Try one more time to get the data
+            const data = await API.getAnalysisStatus(this.currentAnalysisId);
+            
+            if (data.brands_data && Object.keys(data.brands_data).length > 0) {
+                this.analysisData = data;
+                UI.showToast('Showing available analysis data', 'info');
+                this.showResults(data);
+            } else {
+                UI.showToast('No data available yet. The analysis may still be processing in the background.', 'warning');
+                this.hideLoadingSection();
+            }
+        } catch (error) {
+            console.error('Could not retrieve partial results:', error);
+            UI.showToast('Unable to retrieve results. Please try loading from history later.', 'error');
+            this.hideLoadingSection();
+        }
+    }
+
+    
     showResults(data) {
         console.log('Showing results');
         
