@@ -1,40 +1,40 @@
 # Core FastAPI and server
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-python-multipart==0.0.6
+fastapi
+uvicorn[standard]
+python-multipart
 
 # File handling
-aiofiles==23.2.1
+aiofiles
 
 # Data processing
-pandas==2.0.3
-numpy==1.24.4
+pandas
+numpy
 
 # Configuration
-python-dotenv==1.0.0
+python-dotenv
 
 # Data validation
-pydantic==2.5.0
+pydantic
 
 # API clients
-apify-client==1.7.1
-openai>=1.50.0
+apify-client
+openai
 
 # HTTP requests - FIXED FOR SSL COMPATIBILITY
-requests==2.31.0
-urllib3==1.26.18
-certifi==2024.2.2
+requests
+urllib3
+certifi
 
 # Image processing
-Pillow==10.1.0
+Pillow
 
 # Templating
-jinja2==3.1.2
+jinja2
 
 # Database - MongoDB
-pymongo==4.6.1
-motor==3.3.2
+pymongo
+motor
 
 # Additional dependencies for stability
-charset-normalizer==3.3.2
-idna==3.6
+charset-normalizer
+idna
