@@ -24,6 +24,8 @@ class AnalysisService:
         api_key = os.getenv('OPENAI_API_KEY')
         if not api_key:
             raise ValueError("OPENAI_API_KEY not found in .env file")
+        
+        # Updated for OpenAI v1.x+ - removed proxies parameter
         self.client = OpenAI(api_key=api_key)
 
     async def classify_posts_with_vision(self, posts: List[Dict[str, Any]], keywords: List[str], 
