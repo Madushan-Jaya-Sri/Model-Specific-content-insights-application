@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import List, Dict, Optional, Any
 from datetime import datetime
 
@@ -40,12 +40,18 @@ class ProfileData(BaseModel):
     platform: str
 
 class EngagementMetrics(BaseModel):
+    # Add this to suppress the warning
+    model_config = ConfigDict(protected_namespaces=())
+    
     total_posts: int
     total_engagement: int
     average_engagement: float
     model_breakdown: Dict[str, Dict[str, Any]]
 
 class AnalysisResult(BaseModel):
+    # Add this to suppress the warning
+    model_config = ConfigDict(protected_namespaces=())
+    
     analysis_id: str
     status: str
     progress: int
@@ -55,6 +61,9 @@ class AnalysisResult(BaseModel):
     reference_images: Optional[Dict[str, Dict[str, List[str]]]] = None
 
 class ClassificationRequest(BaseModel):
+    # Add this to suppress the warning
+    model_config = ConfigDict(protected_namespaces=())
+    
     posts: List[Dict[str, Any]]
     keywords: List[str]
     platform: str
